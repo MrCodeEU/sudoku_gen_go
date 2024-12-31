@@ -1,11 +1,10 @@
-package main
+package visualizer
 
 import (
 	"fmt"
 	"math"
 	"strings"
-
-	"github.com/MrCodeEU/sudoku_gen_go/types"
+	"sudoku_gen_go/internal/types"
 )
 
 // Visualizer handles grid visualization
@@ -19,19 +18,21 @@ func NewVisualizer(grid *types.Grid) *Visualizer {
 
 func (v *Visualizer) Print() {
 	size := v.grid.Size
+	maxDigits := len(fmt.Sprint(size))
 
 	// Print top border
-	v.printHorizontalBorder(size)
+	v.printHorizontalBorder(size, maxDigits)
 
 	// Print rows
 	for i := 0; i < size; i++ {
 		fmt.Print("│ ")
 		for j := 0; j < size; j++ {
 			if v.grid.Cells[i][j] == 0 {
-				fmt.Print(". ")
+				fmt.Printf("%-*s", maxDigits, ".")
 			} else {
-				fmt.Printf("%d ", v.grid.Cells[i][j])
+				fmt.Printf("%-*d", maxDigits, v.grid.Cells[i][j])
 			}
+			fmt.Print(" ")
 
 			// Print vertical borders
 			if (j+1)%v.getBoxSize() == 0 && j < size-1 {
@@ -42,23 +43,23 @@ func (v *Visualizer) Print() {
 
 		// Print horizontal borders
 		if (i+1)%v.getBoxSize() == 0 && i < size-1 {
-			v.printHorizontalBorder(size)
+			v.printHorizontalBorder(size, maxDigits)
 		}
 	}
 
 	// Print bottom border
-	v.printHorizontalBorder(size)
+	v.printHorizontalBorder(size, maxDigits)
 }
 
 func (v *Visualizer) getBoxSize() int {
 	return int(math.Sqrt(float64(v.grid.Size)))
 }
 
-func (v *Visualizer) printHorizontalBorder(size int) {
+func (v *Visualizer) printHorizontalBorder(size, maxDigits int) {
 	boxSize := v.getBoxSize()
 	fmt.Print("├")
 	for i := 0; i < size; i++ {
-		fmt.Print("──")
+		fmt.Print(strings.Repeat("─", maxDigits+1))
 		if (i+1)%boxSize == 0 && i < size-1 {
 			fmt.Print("┼")
 		}
@@ -68,6 +69,7 @@ func (v *Visualizer) printHorizontalBorder(size int) {
 
 func (v *Visualizer) PrintJigsaw() {
 	size := v.grid.Size
+	maxDigits := len(fmt.Sprint(size))
 
 	// ANSI color codes for different regions
 	colors := []string{
@@ -90,7 +92,8 @@ func (v *Visualizer) PrintJigsaw() {
 	reset := "\033[0m"
 
 	// Print top border
-	fmt.Println("┌" + strings.Repeat("─", size*2+1) + "┐")
+	borderWidth := size*(maxDigits+1) + 1
+	fmt.Println("┌" + strings.Repeat("─", borderWidth) + "┐")
 
 	// Print rows
 	for i := 0; i < size; i++ {
@@ -101,16 +104,17 @@ func (v *Visualizer) PrintJigsaw() {
 			colorCode := colors[regionIndex%len(colors)]
 
 			if v.grid.Cells[i][j] == 0 {
-				fmt.Printf("%s %s%s", colorCode, ".", reset)
+				fmt.Printf("%s%-*s%s", colorCode, maxDigits, ".", reset)
 			} else {
-				fmt.Printf("%s%d%s ", colorCode, v.grid.Cells[i][j], reset)
+				fmt.Printf("%s%-*d%s", colorCode, maxDigits, v.grid.Cells[i][j], reset)
 			}
+			fmt.Print(" ")
 		}
 		fmt.Println("│")
 	}
 
 	// Print bottom border
-	fmt.Println("└" + strings.Repeat("─", size*2+1) + "┘")
+	fmt.Println("└" + strings.Repeat("─", borderWidth) + "┘")
 }
 
 func (v *Visualizer) findRegionIndex(cellIndex int) int {

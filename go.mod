@@ -1,4 +1,4 @@
-module github.com/MrCodeEU/sudoku_gen_go
+module sudoku_gen_go
 
 go 1.22.0
 

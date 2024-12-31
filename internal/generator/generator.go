@@ -1,12 +1,12 @@
-package main
+package generator
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
+	"sudoku_gen_go/internal/types"
 	"time"
-
-	"github.com/MrCodeEU/sudoku_gen_go/types"
 )
 
 // SudokuGenerator interface defines methods for generating Sudoku puzzles
@@ -38,10 +38,12 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 	maxRetries := 7
 
 	for retries < maxRetries {
+		fmt.Printf("Attempt %d/%d...\n", retries+1, maxRetries)
 		grid := types.NewGrid(g.size, g.sudokuType)
 		if g.sudokuType == types.Jigsaw {
 			regions, err := g.generateJigsawRegions()
 			if err != nil {
+				fmt.Printf("Failed to generate jigsaw regions: %v\n", err)
 				retries++
 				continue
 			}
@@ -51,6 +53,7 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 		}
 
 		if solved := g.solve(grid, startTime, maxTime); solved {
+			fmt.Printf("Successfully generated puzzle on attempt %d\n", retries+1)
 			// Copy solution
 			grid.Solution = make([][]int, g.size)
 			for i := range grid.Cells {
@@ -63,10 +66,11 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 			return grid, nil
 		}
 
+		fmt.Printf("Failed to solve grid on attempt %d\n", retries+1)
 		retries++
 	}
 
-	return nil, errors.New("failed to generate valid puzzle")
+	return nil, fmt.Errorf("failed to generate valid puzzle after %d attempts", maxRetries)
 }
 
 func (g *ClassicGenerator) solve(grid *types.Grid, startTime time.Time, maxTime time.Duration) bool {
@@ -183,8 +187,16 @@ func (g *ClassicGenerator) SetDifficulty(level int) error {
 }
 
 func (g *ClassicGenerator) generateNormalSubgrids() [][]int {
-	boxSize := int(math.Sqrt(float64(g.size)))
-	regions := make([][]int, g.size)
+	size := g.size
+	boxSize := int(math.Sqrt(float64(size)))
+	// Handle non-square sizes (like 12)
+	if boxSize*boxSize != size {
+		boxWidth := 3  // Default for size 12
+		boxHeight := 4 // Default for size 12
+		return g.generateRectangularSubgrids(boxWidth, boxHeight)
+	}
+
+	regions := make([][]int, size)
 
 	for boxRow := 0; boxRow < boxSize; boxRow++ {
 		for boxCol := 0; boxCol < boxSize; boxCol++ {
@@ -203,11 +215,40 @@ func (g *ClassicGenerator) generateNormalSubgrids() [][]int {
 	return regions
 }
 
+func (g *ClassicGenerator) generateRectangularSubgrids(boxWidth, boxHeight int) [][]int {
+	size := g.size
+	regions := make([][]int, size)
+
+	for boxRow := 0; boxRow < size/boxHeight; boxRow++ {
+		for boxCol := 0; boxCol < size/boxWidth; boxCol++ {
+			region := make([]int, 0, size)
+			for i := 0; i < boxHeight; i++ {
+				for j := 0; j < boxWidth; j++ {
+					row := boxRow*boxHeight + i
+					col := boxCol*boxWidth + j
+					region = append(region, row*size+col)
+				}
+			}
+			regions[boxRow*(size/boxWidth)+boxCol] = region
+		}
+	}
+
+	return regions
+}
+
 func (g *ClassicGenerator) generateJigsawRegions() ([][]int, error) {
 	maxAttempts := 1000000
 	size := g.size
+	lastProgress := 0
 
 	for attempts := 0; attempts < maxAttempts; attempts++ {
+		// Show progress every 10%
+		progress := attempts * 100 / maxAttempts
+		if progress/10 > lastProgress/10 {
+			fmt.Printf("Generating jigsaw regions... %d%%\n", progress)
+			lastProgress = progress
+		}
+
 		regions := make([][]int, size)
 		used := make(map[int]bool)
 		adjacency := g.buildAdjacencyList()
