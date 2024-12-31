@@ -40,12 +40,16 @@ func init() {
 	}
 
 	email := os.Getenv("POCKETBASE_EMAIL")
-	fmt.Println(email)
 	password := os.Getenv("POCKETBASE_PASSWORD")
 
-	// Create client with authentication
+	// Create client with superuser authentication
 	client = pocketbase.NewClient("https://base.mljr.eu",
-		pocketbase.WithAdminEmailPassword(email, password))
+		pocketbase.WithSuperuserEmailPassword(email, password))
+
+	// Attempt initial authorization
+	if err := client.Authorize(); err != nil {
+		fmt.Printf("⚠️ Initial authorization failed: %v\n", err)
+	}
 }
 
 // Authenticate tries to authenticate with PocketBase
@@ -71,6 +75,12 @@ func Authenticate() error {
 }
 
 func UploadSudoku(sudokuData map[string]interface{}) (*pocketbase.ResponseCreate, error) {
+	// Validate ID length
+	id, ok := sudokuData["id"].(string)
+	if !ok || len(id) > 6 {
+		return nil, fmt.Errorf("invalid ID: must be a string of max 6 characters")
+	}
+
 	layoutConfig := "jigsaw"
 	if sudokuData["layoutType"] != "jigsaw" {
 		layoutConfig = fmt.Sprintf("%dx%d",
@@ -90,11 +100,20 @@ func UploadSudoku(sudokuData map[string]interface{}) (*pocketbase.ResponseCreate
 	}
 
 	data := map[string]any{
-		"id":         sudokuData["id"],
+		"id":         id,
 		"sudoku":     string(sudokuJSON),
 		"difficulty": fmt.Sprintf("%v", sudokuData["difficulty"]),
 		"size":       fmt.Sprintf("%v", sudokuData["size"]),
 		"layout":     layoutConfig,
+	}
+
+	// Check if record with this ID already exists
+	exists, err := SudokuExists(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if sudoku exists: %v", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("sudoku with ID %s already exists", id)
 	}
 
 	record, err := client.Create("sudokus", data)

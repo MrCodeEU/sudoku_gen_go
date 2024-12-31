@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -14,14 +12,6 @@ import (
 	"sudoku_gen_go/internal/visualizer"
 	"time"
 )
-
-func generateID() string {
-	bytes := make([]byte, 15)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(bytes)
-}
 
 func main() {
 	// Check environment variables first
@@ -57,79 +47,74 @@ func main() {
 		sudokuType = types.Jigsaw
 	}
 
-	for i := 0; i < numPuzzles; i++ {
-		fmt.Printf("\nGenerating puzzle %d/%d\n", i+1, numPuzzles)
-		maxMainRetries := 10
-		mainRetries := 0
+	successfulPuzzles := 0
+	for successfulPuzzles < numPuzzles {
+		fmt.Printf("\nGenerating puzzle %d/%d\n", successfulPuzzles+1, numPuzzles)
 
-		for mainRetries < maxMainRetries {
-			fmt.Printf("\nGenerating %v Sudoku %dx%d (Difficulty: %d)\n",
-				sudokuType, sizeNum, sizeNum, diffNum)
+		fmt.Printf("\nGenerating %v Sudoku %dx%d (Difficulty: %d)\n",
+			sudokuType, sizeNum, sizeNum, diffNum)
 
-			start := time.Now()
-			generator := generator.NewClassicGenerator(sizeNum, sudokuType)
-			generator.SetDifficulty(diffNum)
-			generator.SetThreads(threadNum)
-			generator.SetMaxRetries(maxMainRetries) // Add this line
+		start := time.Now()
+		generator := generator.NewClassicGenerator(sizeNum, sudokuType)
+		generator.SetDifficulty(diffNum)
+		generator.SetThreads(threadNum)
 
-			grid, err := generator.Generate()
-			elapsed := time.Since(start)
-			fmt.Printf("Generation time: %v\n", elapsed)
+		grid, err := generator.Generate()
+		elapsed := time.Since(start)
+		fmt.Printf("Generation time: %v\n", elapsed)
 
-			if err != nil {
-				fmt.Printf("Error generating puzzle: %v\n", err)
-				if mainRetries < maxMainRetries-1 {
-					fmt.Print("Would you like to retry? (y/n): ")
-					response, _ := reader.ReadString('\n')
-					response = strings.TrimSpace(strings.ToLower(response))
-					if response == "y" {
-						mainRetries++
-						continue
-					}
-				}
-				break
-			}
-
-			// Visualize the grid
-			viz := visualizer.NewVisualizer(grid)
-			if sudokuType == types.Jigsaw {
-				viz.PrintJigsaw()
-			} else {
-				viz.Print()
-			}
-
-			// Replace the JSON file saving code with this:
-			layoutConfig := "normal"
-			if sudokuType == types.Jigsaw {
-				layoutConfig = "jigsaw"
-			}
-
-			// Convert difficulty from 1-5 scale to 0-1 scale
-			normalizedDifficulty := float64(diffNum) / 5.0
-
-			// Prepare the data for upload
-			sudokuData := map[string]interface{}{
-				"id":         generateID(),
-				"grid":       grid.Puzzle,
-				"solution":   grid.Solution,
-				"regions":    grid.SubGrids,
-				"boxWidth":   grid.BoxWidth,
-				"boxHeight":  grid.BoxHeight,
-				"size":       grid.Size,
-				"difficulty": normalizedDifficulty,
-				"layoutType": layoutConfig,
-			}
-
-			// Upload to PocketBase
-			fmt.Printf("\nUploading puzzle to PocketBase...\n")
-			record, err := db.UploadSudoku(sudokuData)
-			if err != nil {
-				fmt.Printf("❌ Error uploading to PocketBase: %v\n", err)
-				continue
-			}
-			fmt.Printf("✅ Successfully uploaded sudoku with ID: %s\n", record.ID)
-			break
+		if err != nil {
+			fmt.Printf("Error generating puzzle: %v\n", err)
+			continue
 		}
+
+		// Visualize the grid
+		viz := visualizer.NewVisualizer(grid)
+		if sudokuType == types.Jigsaw {
+			viz.PrintJigsaw()
+		} else {
+			viz.Print()
+		}
+
+		// Flatten 2D arrays into 1D arrays
+		flatPuzzle := make([]int, grid.Size*grid.Size)
+		flatSolution := make([]int, grid.Size*grid.Size)
+		for i := 0; i < grid.Size; i++ {
+			for j := 0; j < grid.Size; j++ {
+				index := i*grid.Size + j
+				flatPuzzle[index] = grid.Puzzle[i][j]
+				flatSolution[index] = grid.Solution[i][j]
+			}
+		}
+
+		layoutConfig := "regular"
+		if sudokuType == types.Jigsaw {
+			layoutConfig = "jigsaw"
+		}
+
+		normalizedDifficulty := float64(diffNum) / 5.0
+
+		sudokuData := map[string]interface{}{
+			"id":         generateSudokuID(grid.Puzzle, grid.Size, grid.BoxWidth, grid.BoxHeight, normalizedDifficulty),
+			"grid":       flatPuzzle,
+			"solution":   flatSolution,
+			"regions":    grid.SubGrids,
+			"boxWidth":   grid.BoxWidth,
+			"boxHeight":  grid.BoxHeight,
+			"size":       grid.Size,
+			"difficulty": normalizedDifficulty,
+			"layoutType": layoutConfig,
+			"timestamp":  time.Now().UnixMilli(),
+		}
+
+		fmt.Printf("\nUploading puzzle to PocketBase...\n")
+		record, err := db.UploadSudoku(sudokuData)
+		if err != nil {
+			fmt.Printf("❌ Error uploading to PocketBase: %v\n", err)
+			continue
+		}
+		fmt.Printf("✅ Successfully uploaded sudoku with ID: %s\n", record.ID)
+		successfulPuzzles++
 	}
 }
 
@@ -216,4 +201,32 @@ func isValidSet(nums []int) bool {
 		seen[num] = true
 	}
 	return true
+}
+
+// generateSudokuID creates a deterministic hash ID based on sudoku properties
+func generateSudokuID(grid [][]int, size int, boxWidth int, boxHeight int, difficulty float64) string {
+	// Create a flattened string of all grid numbers
+	var gridStr strings.Builder
+	for _, row := range grid {
+		for _, num := range row {
+			gridStr.WriteString(strconv.Itoa(num))
+		}
+	}
+
+	// Combine all properties into a single string
+	str := fmt.Sprintf("%s%d%d%d%f", gridStr.String(), size, boxWidth, boxHeight, difficulty)
+
+	// Calculate hash similar to the JS implementation
+	var hash int
+	for _, char := range str {
+		hash = ((hash << 5) - hash) + int(char)
+		hash = hash & hash // Keep within 32-bit range
+	}
+
+	// Convert to base36 and take first 6 characters
+	id := strconv.FormatInt(int64(hash&0x7fffffff), 36)
+	if len(id) > 6 {
+		id = id[:6]
+	}
+	return id
 }
