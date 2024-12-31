@@ -27,10 +27,10 @@ func (v *Visualizer) Print() {
 	for i := 0; i < size; i++ {
 		fmt.Print("│ ")
 		for j := 0; j < size; j++ {
-			if v.grid.Cells[i][j] == 0 {
+			if v.grid.Puzzle[i][j] == 0 {
 				fmt.Printf("%-*s", maxDigits, ".")
 			} else {
-				fmt.Printf("%-*d", maxDigits, v.grid.Cells[i][j])
+				fmt.Printf("%-*d", maxDigits, v.grid.Puzzle[i][j])
 			}
 			fmt.Print(" ")
 
@@ -103,10 +103,10 @@ func (v *Visualizer) PrintJigsaw() {
 			regionIndex := v.findRegionIndex(cellIndex)
 			colorCode := colors[regionIndex%len(colors)]
 
-			if v.grid.Cells[i][j] == 0 {
+			if v.grid.Puzzle[i][j] == 0 {
 				fmt.Printf("%s%-*s%s", colorCode, maxDigits, ".", reset)
 			} else {
-				fmt.Printf("%s%-*d%s", colorCode, maxDigits, v.grid.Cells[i][j], reset)
+				fmt.Printf("%s%-*d%s", colorCode, maxDigits, v.grid.Puzzle[i][j], reset)
 			}
 			fmt.Print(" ")
 		}

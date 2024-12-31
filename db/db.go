@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/habibrosyad/pocketbase-go-sdk"
+	"github.com/joho/godotenv"
 )
 
 // SudokuData represents the structure of a sudoku puzzle
@@ -33,28 +34,40 @@ type SudokuRecord struct {
 var client *pocketbase.Client
 
 func init() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("⚠️ Warning: No .env file found")
+	}
+
+	email := os.Getenv("POCKETBASE_EMAIL")
+	fmt.Println(email)
+	password := os.Getenv("POCKETBASE_PASSWORD")
+
+	// Create client with authentication
 	client = pocketbase.NewClient("https://base.mljr.eu",
-		pocketbase.WithAdminEmailPassword(
-			os.Getenv("VITE_POCKETBASE_EMAIL"),
-			os.Getenv("VITE_POCKETBASE_PASSWORD"),
-		))
-	authenticate()
-	// Re-authenticate every 30 minutes
+		pocketbase.WithAdminEmailPassword(email, password))
+}
+
+// Authenticate tries to authenticate with PocketBase
+func Authenticate() error {
+	// Simple authorization check
+	err := client.Authorize()
+	if err != nil {
+		return fmt.Errorf("authentication failed: %v", err)
+	}
+
+	// Start the re-authentication timer
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute)
 		for range ticker.C {
-			authenticate()
+			if err := client.Authorize(); err != nil {
+				fmt.Printf("⚠️ Re-authentication failed: %v\n", err)
+			} else {
+				fmt.Println("🔄 Successfully re-authenticated with PocketBase")
+			}
 		}
 	}()
-}
-
-func authenticate() {
-	err := client.Authorize()
-	if err != nil {
-		fmt.Printf("Failed to authenticate with PocketBase: %v\n", err)
-		return
-	}
-	fmt.Println("Successfully authenticated with PocketBase")
+	return nil
 }
 
 func UploadSudoku(sudokuData map[string]interface{}) (*pocketbase.ResponseCreate, error) {

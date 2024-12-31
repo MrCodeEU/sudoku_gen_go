@@ -2,42 +2,75 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sudoku_gen_go/db"
 	"sudoku_gen_go/internal/generator"
 	"sudoku_gen_go/internal/types"
 	"sudoku_gen_go/internal/visualizer"
 	"time"
 )
 
-func main() {
-	// Test different sudoku types and sizes
-	testCases := []struct {
-		size int
-		typ  types.SudokuType
-		diff int
-	}{
-		{9, types.Normal, 2},
-		{9, types.Jigsaw, 3},
-		{16, types.Normal, 1},
-		{12, types.Normal, 4},
-		{12, types.Jigsaw, 4},
+func generateID() string {
+	bytes := make([]byte, 15)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
 	}
+	return hex.EncodeToString(bytes)
+}
+
+func main() {
+	// Check environment variables first
+	if os.Getenv("POCKETBASE_EMAIL") == "" || os.Getenv("POCKETBASE_PASSWORD") == "" {
+		fmt.Println("❌ Error: Missing environment variables")
+		fmt.Println("Please set POCKETBASE_EMAIL and POCKETBASE_PASSWORD in .env file")
+		os.Exit(1)
+	}
+
+	// First, try to authenticate with PocketBase
+	fmt.Println("\nAuthenticating with PocketBase...")
+	if err := db.Authenticate(); err != nil {
+		fmt.Printf("❌ Authentication failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("✅ Successfully authenticated with PocketBase")
 
 	reader := bufio.NewReader(os.Stdin)
 
-	for _, tc := range testCases {
-		maxMainRetries := 3
+	// Get user preferences
+	size := getUserInput(reader, "Enter grid size (9, 12, or 16): ", validateSize)
+	layout := getUserInput(reader, "Enter layout type (normal/jigsaw): ", validateLayout)
+	difficulty := getUserInput(reader, "Enter difficulty (1-5): ", validateDifficulty)
+	count := getUserInput(reader, "How many puzzles to generate: ", validateCount)
+	threads := getUserInput(reader, "Enter number of threads (1-32): ", validateThreads)
+
+	numPuzzles, _ := strconv.Atoi(count)
+	sizeNum, _ := strconv.Atoi(size)
+	diffNum, _ := strconv.Atoi(difficulty)
+	threadNum, _ := strconv.Atoi(threads)
+	sudokuType := types.Normal
+	if layout == "jigsaw" {
+		sudokuType = types.Jigsaw
+	}
+
+	for i := 0; i < numPuzzles; i++ {
+		fmt.Printf("\nGenerating puzzle %d/%d\n", i+1, numPuzzles)
+		maxMainRetries := 10
 		mainRetries := 0
 
 		for mainRetries < maxMainRetries {
 			fmt.Printf("\nGenerating %v Sudoku %dx%d (Difficulty: %d)\n",
-				tc.typ, tc.size, tc.size, tc.diff)
+				sudokuType, sizeNum, sizeNum, diffNum)
 
 			start := time.Now()
-			generator := generator.NewClassicGenerator(tc.size, tc.typ)
-			generator.SetDifficulty(tc.diff)
+			generator := generator.NewClassicGenerator(sizeNum, sudokuType)
+			generator.SetDifficulty(diffNum)
+			generator.SetThreads(threadNum)
+			generator.SetMaxRetries(maxMainRetries) // Add this line
 
 			grid, err := generator.Generate()
 			elapsed := time.Since(start)
@@ -59,34 +92,82 @@ func main() {
 
 			// Visualize the grid
 			viz := visualizer.NewVisualizer(grid)
-			if tc.typ == types.Jigsaw {
+			if sudokuType == types.Jigsaw {
 				viz.PrintJigsaw()
 			} else {
 				viz.Print()
 			}
 
-			// Verify solution
-			if !verifySolution(grid) {
-				fmt.Println("Warning: Invalid solution generated!")
-				continue
+			// Replace the JSON file saving code with this:
+			layoutConfig := "normal"
+			if sudokuType == types.Jigsaw {
+				layoutConfig = "jigsaw"
 			}
 
-			// Save to JSON
-			jsonData, err := grid.ToJSON()
+			// Convert difficulty from 1-5 scale to 0-1 scale
+			normalizedDifficulty := float64(diffNum) / 5.0
+
+			// Prepare the data for upload
+			sudokuData := map[string]interface{}{
+				"id":         generateID(),
+				"grid":       grid.Puzzle,
+				"solution":   grid.Solution,
+				"regions":    grid.SubGrids,
+				"boxWidth":   grid.BoxWidth,
+				"boxHeight":  grid.BoxHeight,
+				"size":       grid.Size,
+				"difficulty": normalizedDifficulty,
+				"layoutType": layoutConfig,
+			}
+
+			// Upload to PocketBase
+			fmt.Printf("\nUploading puzzle to PocketBase...\n")
+			record, err := db.UploadSudoku(sudokuData)
 			if err != nil {
-				fmt.Printf("Error serializing to JSON: %v\n", err)
+				fmt.Printf("❌ Error uploading to PocketBase: %v\n", err)
 				continue
 			}
-
-			// Write to file for testing
-			filename := fmt.Sprintf("sudoku_%v_%dx%d_diff%d.json",
-				tc.typ, tc.size, tc.size, tc.diff)
-			if err := os.WriteFile(filename, jsonData, 0644); err != nil {
-				fmt.Printf("Error writing to file: %v\n", err)
-			}
+			fmt.Printf("✅ Successfully uploaded sudoku with ID: %s\n", record.ID)
 			break
 		}
 	}
+}
+
+func getUserInput(reader *bufio.Reader, prompt string, validator func(string) bool) string {
+	for {
+		fmt.Print(prompt)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if validator(input) {
+			return input
+		}
+		fmt.Println("Invalid input, please try again.")
+	}
+}
+
+func validateSize(input string) bool {
+	validSizes := map[string]bool{"9": true, "12": true, "16": true}
+	return validSizes[input]
+}
+
+func validateLayout(input string) bool {
+	return input == "normal" || input == "jigsaw"
+}
+
+func validateDifficulty(input string) bool {
+	diff, err := strconv.Atoi(input)
+	return err == nil && diff >= 1 && diff <= 5
+}
+
+func validateCount(input string) bool {
+	count, err := strconv.Atoi(input)
+	return err == nil && count > 0 && count <= 100
+}
+
+// Add new validator
+func validateThreads(input string) bool {
+	threads, err := strconv.Atoi(input)
+	return err == nil && threads >= 1 && threads <= 32
 }
 
 func verifySolution(grid *types.Grid) bool {

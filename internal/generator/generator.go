@@ -20,6 +20,8 @@ type ClassicGenerator struct {
 	difficulty int
 	size       int
 	sudokuType types.SudokuType
+	threads    int
+	maxRetries int // Add this field
 }
 
 func NewClassicGenerator(size int, typ types.SudokuType) *ClassicGenerator {
@@ -27,7 +29,18 @@ func NewClassicGenerator(size int, typ types.SudokuType) *ClassicGenerator {
 		difficulty: 1,
 		size:       size,
 		sudokuType: typ,
+		threads:    4,  // Default threads
+		maxRetries: 10, // Default max retries
 	}
+}
+
+func (g *ClassicGenerator) SetThreads(threads int) {
+	g.threads = threads
+}
+
+// Add this method
+func (g *ClassicGenerator) SetMaxRetries(retries int) {
+	g.maxRetries = retries
 }
 
 // Generate implements the backtracking algorithm with MRV
@@ -35,10 +48,9 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 	startTime := time.Now()
 	maxTime := time.Duration(g.getMaxGenerationTime()) * time.Millisecond
 	retries := 0
-	maxRetries := 7
 
-	for retries < maxRetries {
-		fmt.Printf("Attempt %d/%d...\n", retries+1, maxRetries)
+	for retries < g.maxRetries { // Use g.maxRetries instead of hardcoded value
+		fmt.Printf("Attempt %d/%d...\n", retries+1, g.maxRetries)
 		grid := types.NewGrid(g.size, g.sudokuType)
 		if g.sudokuType == types.Jigsaw {
 			regions, err := g.generateJigsawRegions()
@@ -56,9 +68,9 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 			fmt.Printf("Successfully generated puzzle on attempt %d\n", retries+1)
 			// Copy solution
 			grid.Solution = make([][]int, g.size)
-			for i := range grid.Cells {
+			for i := range grid.Puzzle {
 				grid.Solution[i] = make([]int, g.size)
-				copy(grid.Solution[i], grid.Cells[i])
+				copy(grid.Solution[i], grid.Puzzle[i])
 			}
 
 			// Remove numbers based on difficulty
@@ -70,7 +82,7 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 		retries++
 	}
 
-	return nil, fmt.Errorf("failed to generate valid puzzle after %d attempts", maxRetries)
+	return nil, fmt.Errorf("failed to generate valid puzzle after %d attempts", g.maxRetries)
 }
 
 func (g *ClassicGenerator) solve(grid *types.Grid, startTime time.Time, maxTime time.Duration) bool {
@@ -88,11 +100,11 @@ func (g *ClassicGenerator) solve(grid *types.Grid, startTime time.Time, maxTime 
 
 	for _, num := range nums {
 		if g.isValid(grid, num, row, col) {
-			grid.Cells[row][col] = num
+			grid.Puzzle[row][col] = num
 			if g.solve(grid, startTime, maxTime) {
 				return true
 			}
-			grid.Cells[row][col] = 0
+			grid.Puzzle[row][col] = 0
 		}
 	}
 
@@ -105,7 +117,7 @@ func (g *ClassicGenerator) findEmptyPositionWithMRV(grid *types.Grid) []int {
 
 	for i := 0; i < g.size; i++ {
 		for j := 0; j < g.size; j++ {
-			if grid.Cells[i][j] == 0 {
+			if grid.Puzzle[i][j] == 0 {
 				count := 0
 				for num := 1; num <= g.size; num++ {
 					if g.isValid(grid, num, i, j) {
@@ -126,14 +138,14 @@ func (g *ClassicGenerator) findEmptyPositionWithMRV(grid *types.Grid) []int {
 func (g *ClassicGenerator) isValid(grid *types.Grid, num, row, col int) bool {
 	// Check row
 	for x := 0; x < g.size; x++ {
-		if grid.Cells[row][x] == num {
+		if grid.Puzzle[row][x] == num {
 			return false
 		}
 	}
 
 	// Check column
 	for x := 0; x < g.size; x++ {
-		if grid.Cells[x][col] == num {
+		if grid.Puzzle[x][col] == num {
 			return false
 		}
 	}
@@ -144,7 +156,7 @@ func (g *ClassicGenerator) isValid(grid *types.Grid, num, row, col int) bool {
 
 	for _, idx := range grid.SubGrids[regionIndex] {
 		r, c := idx/g.size, idx%g.size
-		if grid.Cells[r][c] == num {
+		if grid.Puzzle[r][c] == num {
 			return false
 		}
 	}
@@ -237,6 +249,124 @@ func (g *ClassicGenerator) generateRectangularSubgrids(boxWidth, boxHeight int) 
 }
 
 func (g *ClassicGenerator) generateJigsawRegions() ([][]int, error) {
+	if g.threads <= 1 {
+		return g.generateJigsawRegionsSerial()
+	}
+	return g.generateJigsawRegionsParallel()
+}
+
+func (g *ClassicGenerator) generateJigsawRegionsParallel() ([][]int, error) {
+	maxAttempts := 1000000
+	attemptsPerThread := maxAttempts / g.threads
+	resultChan := make(chan [][]int)
+	errorChan := make(chan error)
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	// Launch worker goroutines
+	for i := 0; i < g.threads; i++ {
+		go func(threadID int) {
+			startProgress := attemptsPerThread * threadID
+			endProgress := startProgress + attemptsPerThread
+			lastProgress := 0
+
+			for attempts := startProgress; attempts < endProgress; attempts++ {
+				// Check if we should terminate
+				select {
+				case <-doneChan:
+					return
+				default:
+				}
+
+				// Show progress every 10%
+				progress := (attempts - startProgress) * 100 / attemptsPerThread
+				if progress/10 > lastProgress/10 {
+					fmt.Printf("Thread %d: Generating jigsaw regions... %d%%\n", threadID, progress)
+					lastProgress = progress
+				}
+
+				regions, valid := g.tryGenerateJigsawRegions()
+				if valid {
+					resultChan <- regions
+					return
+				}
+			}
+			if threadID == 0 {
+				errorChan <- errors.New("failed to generate valid jigsaw regions")
+			}
+		}(i)
+	}
+
+	// Wait for result or error
+	select {
+	case regions := <-resultChan:
+		close(resultChan)
+		return regions, nil
+	case err := <-errorChan:
+		close(errorChan)
+		return nil, err
+	}
+}
+
+func (g *ClassicGenerator) tryGenerateJigsawRegions() ([][]int, bool) {
+	size := g.size
+	regions := make([][]int, size)
+	used := make(map[int]bool)
+	adjacency := g.buildAdjacencyList()
+
+	valid := true
+	for regionIdx := 0; regionIdx < size; regionIdx++ {
+		available := make([]int, 0)
+		for i := 0; i < size*size; i++ {
+			if !used[i] {
+				available = append(available, i)
+			}
+		}
+
+		if len(available) == 0 {
+			valid = false
+			break
+		}
+
+		start := available[rand.Intn(len(available))]
+		region := []int{start}
+		used[start] = true
+
+		for len(region) < size {
+			candidates := make([]int, 0)
+			for _, cell := range region {
+				for _, neighbor := range adjacency[cell] {
+					if !used[neighbor] {
+						candidates = append(candidates, neighbor)
+					}
+				}
+			}
+
+			if len(candidates) == 0 {
+				valid = false
+				break
+			}
+
+			next := candidates[rand.Intn(len(candidates))]
+			region = append(region, next)
+			used[next] = true
+		}
+
+		if !valid {
+			break
+		}
+
+		regions[regionIdx] = region
+	}
+
+	if valid && len(used) == size*size {
+		return regions, true
+	}
+	return nil, false
+}
+
+// Rename existing generateJigsawRegions to generateJigsawRegionsSerial
+func (g *ClassicGenerator) generateJigsawRegionsSerial() ([][]int, error) {
 	maxAttempts := 1000000
 	size := g.size
 	lastProgress := 0
@@ -361,6 +491,6 @@ func (g *ClassicGenerator) removeNumbers(grid *types.Grid) {
 	for i := 0; i < cellsToRemove; i++ {
 		cellIdx := cells[i]
 		row, col := cellIdx/g.size, cellIdx%g.size
-		grid.Cells[row][col] = 0
+		grid.Puzzle[row][col] = 0
 	}
 }

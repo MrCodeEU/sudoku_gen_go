@@ -11,24 +11,46 @@ const (
 
 // Grid represents a flexible Sudoku grid
 type Grid struct {
-	Size       int        `json:"size"`
-	Cells      [][]int    `json:"cells"`
-	Type       SudokuType `json:"type"`
-	SubGrids   [][]int    `json:"subgrids"`
-	Solution   [][]int    `json:"solution"`
-	Difficulty int        `json:"difficulty"`
+	Size      int        `json:"size"`
+	BoxWidth  int        `json:"boxWidth"`
+	BoxHeight int        `json:"boxHeight"`
+	Puzzle    [][]int    `json:"grid"` // Renamed from Cells to match JS
+	Solution  [][]int    `json:"solution"`
+	SubGrids  [][]int    `json:"regions"`    // Renamed from SubGrids to match JS
+	Type      SudokuType `json:"layoutType"` // Renamed from Type to match JS
 }
 
 // NewGrid creates a new Grid instance
 func NewGrid(size int, typ SudokuType) *Grid {
-	cells := make([][]int, size)
-	for i := range cells {
-		cells[i] = make([]int, size)
+	puzzle := make([][]int, size)
+	solution := make([][]int, size)
+	for i := range puzzle {
+		puzzle[i] = make([]int, size)
+		solution[i] = make([]int, size)
 	}
+
+	boxWidth, boxHeight := getBoxDimensions(size)
+
 	return &Grid{
-		Size:  size,
-		Type:  typ,
-		Cells: cells,
+		Size:      size,
+		BoxWidth:  boxWidth,
+		BoxHeight: boxHeight,
+		Puzzle:    puzzle,
+		Solution:  solution,
+		Type:      typ,
+	}
+}
+
+func getBoxDimensions(size int) (width, height int) {
+	switch size {
+	case 9:
+		return 3, 3
+	case 12:
+		return 3, 4
+	case 16:
+		return 4, 4
+	default:
+		return 3, 3
 	}
 }
 
