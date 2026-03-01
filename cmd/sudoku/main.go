@@ -15,19 +15,19 @@ import (
 
 func main() {
 	// Check environment variables first
-	if os.Getenv("POCKETBASE_EMAIL") == "" || os.Getenv("POCKETBASE_PASSWORD") == "" {
+	if os.Getenv("SUDOKU_API_USER") == "" || os.Getenv("SUDOKU_API_PASSWORD") == "" {
 		fmt.Println("❌ Error: Missing environment variables")
-		fmt.Println("Please set POCKETBASE_EMAIL and POCKETBASE_PASSWORD in .env file")
+		fmt.Println("Please set SUDOKU_API_USER and SUDOKU_API_PASSWORD in .env file")
 		os.Exit(1)
 	}
 
-	// First, try to authenticate with PocketBase
-	fmt.Println("\nAuthenticating with PocketBase...")
+	// Verify API credentials and connectivity
+	fmt.Println("\nConnecting to Sudoku API...")
 	if err := db.Authenticate(); err != nil {
-		fmt.Printf("❌ Authentication failed: %v\n", err)
+		fmt.Printf("❌ Connection failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ Successfully authenticated with PocketBase")
+	fmt.Println("✅ Successfully connected to Sudoku API")
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -107,13 +107,17 @@ func main() {
 			"timestamp":  time.Now().UnixMilli(),
 		}
 
-		fmt.Printf("\nUploading puzzle to PocketBase...\n")
-		record, err := db.UploadSudoku(sudokuData)
+		fmt.Printf("\nUploading puzzle to Sudoku API...\n")
+		result, err := db.UploadSudoku(sudokuData)
 		if err != nil {
-			fmt.Printf("❌ Error uploading to PocketBase: %v\n", err)
+			fmt.Printf("❌ Error uploading sudoku: %v\n", err)
 			continue
 		}
-		fmt.Printf("✅ Successfully uploaded sudoku with ID: %s\n", record.ID)
+		if result.Skipped {
+			fmt.Printf("⏭️  Sudoku with ID %s already exists, skipped\n", result.ID)
+		} else {
+			fmt.Printf("✅ Successfully uploaded sudoku with ID: %s\n", result.ID)
+		}
 		successfulPuzzles++
 	}
 }
