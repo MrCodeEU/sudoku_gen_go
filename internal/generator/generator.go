@@ -70,7 +70,7 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 				default:
 				}
 
-				fmt.Printf("Thread %d: Attempt %d/%d\n", threadID, attempt+1, attemptsPerThread)
+				fmt.Printf("\rThread %d: Attempt %d/%d", threadID, attempt+1, attemptsPerThread)
 
 				grid := types.NewGrid(g.size, g.sudokuType)
 				var err error
@@ -127,7 +127,7 @@ func (g *ClassicGenerator) Generate() (*types.Grid, error) {
 			err := <-errorChan
 			return nil, err
 		}
-		fmt.Println("Successfully generated puzzle")
+		fmt.Printf("\r✓ Successfully generated puzzle\n")
 		return grid, nil
 	case <-time.After(maxTime):
 		close(stopChan) // Signal all goroutines to stop

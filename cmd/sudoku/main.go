@@ -49,9 +49,9 @@ func main() {
 
 	successfulPuzzles := 0
 	for successfulPuzzles < numPuzzles {
-		fmt.Printf("\nGenerating puzzle %d/%d\n", successfulPuzzles+1, numPuzzles)
+		fmt.Printf("\rGenerating puzzle %d/%d", successfulPuzzles+1, numPuzzles)
 
-		fmt.Printf("\nGenerating %v Sudoku %dx%d (Difficulty: %d)\n",
+		fmt.Printf("\rGenerating %v Sudoku %dx%d (Difficulty: %d)",
 			sudokuType, sizeNum, sizeNum, diffNum)
 
 		start := time.Now()
@@ -74,6 +74,7 @@ func main() {
 			viz.PrintJigsaw()
 		} else {
 			viz.Print()
+			fmt.Println()
 		}
 
 		// Flatten 2D arrays into 1D arrays
@@ -107,7 +108,7 @@ func main() {
 			"timestamp":  time.Now().UnixMilli(),
 		}
 
-		fmt.Printf("\nUploading puzzle to Sudoku API...\n")
+		fmt.Printf("\rUploading puzzle to Sudoku API...")
 		result, err := db.UploadSudoku(sudokuData)
 		if err != nil {
 			fmt.Printf("❌ Error uploading sudoku: %v\n", err)

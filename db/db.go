@@ -13,11 +13,11 @@ import (
 
 // SudokuData is the puzzle content stored in the sudoku field
 type SudokuData struct {
-	Grid      []int `json:"grid"`
-	Solution  []int `json:"solution"`
+	Grid      []int   `json:"grid"`
+	Solution  []int   `json:"solution"`
 	Regions   [][]int `json:"regions"`
-	BoxWidth  int   `json:"boxWidth"`
-	BoxHeight int   `json:"boxHeight"`
+	BoxWidth  int     `json:"boxWidth"`
+	BoxHeight int     `json:"boxHeight"`
 }
 
 // UploadResponse is the JSON body returned by POST /api/sudokus/external
